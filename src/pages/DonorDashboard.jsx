@@ -26,55 +26,120 @@ const DonorDashboard = () => {
     loadMyPosts();
   }, []);
 
-  const loadMyPosts = () => {
+  const loadMyPosts = async () => {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    if (!userData.email) return;
+    const donorId = userData.id || userData.userId || userData.ID || userData.user_id;
+    if (!donorId) return;
 
-    const allPosts = JSON.parse(localStorage.getItem('foodPosts') || '[]');
-    const userPosts = allPosts.filter((post) => 
-      post.donorEmail === userData.email || post.donorName === userData.name
-    );
-    setMyPosts(userPosts);
+    try {
+      const response = await fetch('/fetchpost', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ donor_id: donorId })
+      });
+      const data = await response.json().catch(() => ([]));
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Failed to load posts');
+      }
+
+      // Map backend shape to UI shape if necessary
+      const mapped = (Array.isArray(data) ? data : []).map(item => ({
+        id: (item.id || item.foodId || Date.now()).toString(),
+        foodName: item.food_name || item.foodName || '',
+        quantity: item.quantity || '',
+        expiryHours: item.expiry_time || '',
+        pickupLocation: item.pickup_location || '',
+        description: item.description || '',
+        imageUrl: item.image_url || '',
+        donorName: userData.name || userData.email,
+        donorEmail: userData.email,
+        status: (item.status || 'available').toLowerCase(),
+        postedAt: 'Just now'
+      }));
+      setMyPosts(mapped);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const handleCreatePost = () => {
+  const handleCreatePost = async () => {
     if (!user?.email || !newPost.foodName || !newPost.quantity) return;
 
-    const post = {
-      id: Date.now().toString(),
-      ...newPost,
-      donorName: user.name || user.email,
-      donorEmail: user.email,
-      status: "available",
-      postedAt: "Just now"
-    };
+    try {
+      const parsedHours = parseInt(newPost.expiryHours, 10);
+      const hasExpiry = Number.isFinite(parsedHours) && parsedHours > 0;
+      const expiryLabel = hasExpiry ? `${parsedHours} ${parsedHours === 1 ? 'hour' : 'hours'}` : null;
+      const donorId = user.id || user.userId || user.ID || user.user_id || null;
 
-    // Add to all food posts
-    const allPosts = JSON.parse(localStorage.getItem('foodPosts') || '[]');
-    const updatedPosts = [post, ...allPosts];
-    localStorage.setItem('foodPosts', JSON.stringify(updatedPosts));
-    
-    // Update local state
-    setMyPosts([post, ...myPosts]);
-    setIsCreateDialogOpen(false);
-    setNewPost({
-      foodName: "",
-      quantity: "",
-      expiryHours: "",
-      pickupLocation: "",
-      description: "",
-      imageUrl: ""
-    });
+      if (!donorId) {
+        alert('Your session is missing an id. Please log in again.');
+        window.location.href = '/login';
+        return;
+      }
+
+      const response = await fetch('/foodposts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          donor_id: donorId,
+          food_name: newPost.foodName,
+          description: newPost.description || '',
+          quantity: newPost.quantity,
+          image_url: newPost.imageUrl || '',
+          pickup_location: newPost.pickupLocation || '',
+          // Send human-readable hours string or null for no expiry
+          expiry_time: expiryLabel
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Failed to create post');
+      }
+
+      alert('Food post created successfully');
+
+      // Update state from response or re-fetch for consistency
+      const post = {
+        id: (data.foodId || Date.now()).toString(),
+        ...newPost,
+        donorName: user.name || user.email,
+        donorEmail: user.email,
+        status: "available",
+        postedAt: "Just now"
+      };
+      setMyPosts([post, ...myPosts]);
+      setIsCreateDialogOpen(false);
+      setNewPost({
+        foodName: "",
+        quantity: "",
+        expiryHours: "",
+        pickupLocation: "",
+        description: "",
+        imageUrl: ""
+      });
+    } catch (err) {
+      alert(err.message || 'An error occurred while creating the post');
+    }
   };
 
-  const handleCancelPost = (postId) => {
-    // Remove from localStorage
-    const allPosts = JSON.parse(localStorage.getItem('foodPosts') || '[]');
-    const updatedPosts = allPosts.filter((post) => post.id !== postId);
-    localStorage.setItem('foodPosts', JSON.stringify(updatedPosts));
+  const handleCancelPost = async (postId) => {
+    try {
+      const response = await fetch('/deletepost', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: postId })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Failed to delete post');
+      }
 
-    // Update local state
-    setMyPosts(myPosts.filter(post => post.id !== postId));
+      setMyPosts(myPosts.filter(post => post.id !== postId));
+      alert('Post deleted successfully');
+    } catch (err) {
+      alert(err.message || 'An error occurred while deleting the post');
+    }
   };
 
   const getStatusColor = (status) => {

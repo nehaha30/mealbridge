@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const Login = () => {
+  const navigate = useNavigate();
   
   const [formData, setFormData] = useState({
     email: "",
@@ -9,55 +10,49 @@ const Login = () => {
   });
   const [error, setError] = useState("");
 
-  // Demo users for quick access
-  const demoUsers = [
-    { name: "Mario's Italian Restaurant", email: "mario@restaurant.com", password: "demo123", role: "donor" },
-    { name: "Green Garden Cafe", email: "info@greengarden.com", password: "demo123", role: "donor" },
-    { name: "Community Food Bank", email: "contact@foodbank.org", password: "demo123", role: "receiver" },
-    { name: "John Smith", email: "john.smith@email.com", password: "demo123", role: "receiver" }
-  ];
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-
-    // Check demo users first
-    const demoUser = demoUsers.find(user => 
-      user.email === formData.email && user.password === formData.password
-    );
-
-    if (demoUser) {
-      localStorage.setItem('user', JSON.stringify(demoUser));
-      
-      // After login, user can click through to dashboards
-      return;
+    try {
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email, password: formData.password })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || 'Login failed');
+      }
+      const data = await res.json();
+      const user = data.user || data; // support either {user: {...}} or {...}
+      if (!user || !user.role) {
+        throw new Error('Invalid response from server');
+      }
+      localStorage.setItem('user', JSON.stringify(user));
+      if (user.role === 'donor') {
+        navigate('/donor-dashboard');
+      } else if (user.role === 'receiver') {
+        navigate('/receiver-dashboard');
+      } else {
+        navigate('/');
+      }
+    } catch (err) {
+      setError(err.message || 'Something went wrong');
     }
-
-    // For now, just do basic validation since this is a demo
-    if (!formData.email || !formData.password) {
-      setError("Please fill in all fields");
-      return;
-    }
-
-    setError("Invalid credentials. Try one of the demo accounts.");
-  };
-
-  const handleDemoLogin = (user) => {
-    localStorage.setItem('user', JSON.stringify(user));
   };
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl w-full space-y-8">
+      <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <h2 className="text-3xl font-bold text-primary">
             Welcome back to MealBridge
           </h2>
-          <p className="mt-2 text-muted-foreground">Sign in to your account or try demo accounts</p>
+          <p className="mt-2 text-muted-foreground">Sign in to your account</p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Login Form */}
+        <div>
           <div className="border border-border shadow-card rounded-lg p-6">
             <div className="mb-6">
               <h3 className="text-xl font-semibold text-foreground">Sign In</h3>
@@ -102,49 +97,6 @@ const Login = () => {
                 <Link to="/register" className="text-primary hover:underline text-sm font-medium">
                   Sign up
                 </Link>
-              </div>
-            </div>
-          </div>
-
-          {/* Demo Accounts */}
-          <div className="border border-border shadow-card rounded-lg p-6">
-            <div className="mb-6">
-              <h3 className="text-xl font-semibold text-foreground">Try Demo Accounts</h3>
-              <p className="text-sm text-muted-foreground mt-1">Click any account to login instantly</p>
-            </div>
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium text-primary">Donor Accounts</h4>
-                {demoUsers.filter(user => user.role === 'donor').map((user, index) => (
-                  <Link
-                    key={index}
-                    to="/donor-dashboard"
-                    onClick={() => handleDemoLogin(user)}
-                    className="block w-full text-left border border-input hover:bg-accent hover:text-accent-foreground px-3 py-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  >
-                    <div>
-                      <div className="font-medium">{user.name}</div>
-                      <div className="text-sm text-muted-foreground">{user.email}</div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-              
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium text-secondary">Receiver Accounts</h4>
-                {demoUsers.filter(user => user.role === 'receiver').map((user, index) => (
-                  <Link
-                    key={index}
-                    to="/receiver-dashboard"
-                    onClick={() => handleDemoLogin(user)}
-                    className="block w-full text-left border border-input hover:bg-accent hover:text-accent-foreground px-3 py-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  >
-                    <div>
-                      <div className="font-medium">{user.name}</div>
-                      <div className="text-sm text-muted-foreground">{user.email}</div>
-                    </div>
-                  </Link>
-                ))}
               </div>
             </div>
           </div>

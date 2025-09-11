@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const Register = () => {
+  const navigate = useNavigate();
   
   const [formData, setFormData] = useState({
     name: "",
@@ -12,73 +13,72 @@ const Register = () => {
   });
   const [error, setError] = useState("");
 
-  // Pre-configured demo users
-  const demoUsers = {
-    donors: [
-      { name: "Mario's Italian Restaurant", email: "mario@restaurant.com", password: "demo123", role: "donor" },
-      { name: "Green Garden Cafe", email: "info@greengarden.com", password: "demo123", role: "donor" },
-      { name: "Sunrise Bakery", email: "hello@sunrisebakery.com", password: "demo123", role: "donor" }
-    ],
-    receivers: [
-      { name: "Community Food Bank", email: "contact@foodbank.org", password: "demo123", role: "receiver" },
-      { name: "Local NGO Helper", email: "help@localngo.org", password: "demo123", role: "receiver" },
-      { name: "John Smith", email: "john.smith@email.com", password: "demo123", role: "receiver" }
-    ]
-  };
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-
+  
+    console.log("Form submitted:", formData);
+  
+    // Check password match
     if (formData.password !== formData.confirmPassword) {
       setError("Passwords don't match");
+      console.log("Error: Passwords don't match");
       return;
     }
-
+  
+    // Check password length
     if (formData.password.length < 6) {
       setError("Password must be at least 6 characters");
+      console.log("Error: Password too short");
       return;
     }
-
-    // Check if email already exists
-    const existingUser = localStorage.getItem('user');
-    if (existingUser) {
-      const user = JSON.parse(existingUser);
-      if (user.email === formData.email) {
-        setError("Email already registered");
-        return;
-      }
-    }
-
-    // Save user
+  
+    // Prepare data to send to backend
     const userData = {
       name: formData.name,
       email: formData.email,
+      password: formData.password, // send password too
       role: formData.role
     };
-    
-    localStorage.setItem('user', JSON.stringify(userData));
-    
-    // Redirect based on role
-    // After register, user can click through to dashboards
+  
+    try {
+      const response = await fetch("/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(userData)
+      });
+  
+      const data = await response.json();
+      console.log("Backend response:", data);
+  
+      if (!response.ok) {
+        setError(data.error || "Registration failed");
+        return;
+      }
+  
+      // Success
+      console.log("Registration complete for:", userData.name);
+      alert("Registration successful. Please log in.");
+      navigate("/login");
+    } catch (err) {
+      console.error("Error sending data to backend:", err);
+      setError("Server error. Please try again.");
+    }
   };
 
-  const handleDemoLogin = (user) => {
-    localStorage.setItem('user', JSON.stringify(user));
-  };
+  
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl w-full space-y-8">
         <div className="text-center">
-          <h2 className="text-3xl font-bold text-primary">
-            Join MealBridge
-          </h2>
-          <p className="mt-2 text-muted-foreground">Create your account or try demo accounts</p>
+          <h2 className="text-3xl font-bold text-primary">Join MealBridge</h2>
+          <p className="mt-2 text-muted-foreground">Create your account</p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Registration Form */}
+        <div>
           <div className="border border-border shadow-card rounded-lg p-6">
             <div className="mb-6">
               <h3 className="text-xl font-semibold text-foreground">Create Account</h3>
@@ -183,52 +183,7 @@ const Register = () => {
             </div>
           </div>
 
-          {/* Demo Accounts */}
-          <div className="space-y-6">
-            <div className="border border-border shadow-card rounded-lg p-6">
-              <div className="mb-6">
-                <h3 className="text-xl font-semibold text-primary">Demo Donor Accounts</h3>
-                <p className="text-sm text-muted-foreground mt-1">Try the platform as a food donor</p>
-              </div>
-              <div className="space-y-3">
-                {demoUsers.donors.map((user, index) => (
-                  <Link
-                    key={index}
-                    to="/donor-dashboard"
-                    onClick={() => handleDemoLogin(user)}
-                    className="block w-full text-left border border-input hover:bg-accent hover:text-accent-foreground px-3 py-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  >
-                    <div>
-                      <div className="font-medium">{user.name}</div>
-                      <div className="text-sm text-muted-foreground">{user.email}</div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-
-            <div className="border border-border shadow-card rounded-lg p-6">
-              <div className="mb-6">
-                <h3 className="text-xl font-semibold text-secondary">Demo Receiver Accounts</h3>
-                <p className="text-sm text-muted-foreground mt-1">Try the platform as a food receiver</p>
-              </div>
-              <div className="space-y-3">
-                {demoUsers.receivers.map((user, index) => (
-                  <Link
-                    key={index}
-                    to="/receiver-dashboard"
-                    onClick={() => handleDemoLogin(user)}
-                    className="block w-full text-left border border-input hover:bg-accent hover:text-accent-foreground px-3 py-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  >
-                    <div>
-                      <div className="font-medium">{user.name}</div>
-                      <div className="text-sm text-muted-foreground">{user.email}</div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </div>
+          
         </div>
       </div>
     </div>

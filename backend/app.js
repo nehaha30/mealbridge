@@ -2,14 +2,13 @@
 import express from "express";
 import mysql from "mysql2";
 import cors from "cors";
-import bodyParser from "body-parser";
 
 const app = express();
-const PORT = 5000;
+const PORT = 3000;
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
 // MySQL connection (port 3308, password root)
 const db = mysql.createConnection({
@@ -96,6 +95,37 @@ app.post("/pickups/list", (req, res) => {
   db.query(sql, [receiver_id], (err, result) => {
     if (err) return res.status(500).json({ error: err.sqlMessage });
     res.json(result);
+  });
+});
+
+// Fetch posts for a donor (expects { donor_id } in body)
+app.post("/fetchpost", (req, res) => {
+  const { donor_id } = req.body || {};
+  if (!donor_id) {
+    return res.status(400).json({ error: "donor_id is required" });
+  }
+  const sql = "SELECT * FROM foodposts WHERE donor_id = ? ORDER BY id DESC";
+  db.query(sql, [donor_id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.sqlMessage });
+    res.json(result);
+  });
+});
+
+// Delete Food Post (expects { id } in body)
+app.delete("/deletepost", (req, res) => {
+  const { id } = req.body || {};
+  if (!id) {
+    return res.status(400).json({ error: "Post id is required" });
+  }
+  const sql = "DELETE FROM foodposts WHERE food_id = ?";
+  db.query(sql, [id], (err, result) => {
+    if (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.sqlMessage });}
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Post not found" });
+    }
+    res.json({ message: "Food post deleted", id });
   });
 });
 
