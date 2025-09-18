@@ -16,6 +16,7 @@ const DonorDashboard = () => {
     description: "",
     imageUrl: ""
   });
+  const [claimedInfoByFoodId, setClaimedInfoByFoodId] = useState({});
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -44,7 +45,7 @@ const DonorDashboard = () => {
 
       // Map backend shape to UI shape if necessary
       const mapped = (Array.isArray(data) ? data : []).map(item => ({
-        id: (item.id || item.foodId || Date.now()).toString(),
+        id: (item.food_id || item.id || item.foodId || Date.now()).toString(),
         foodName: item.food_name || item.foodName || '',
         quantity: item.quantity || '',
         expiryHours: item.expiry_time || '',
@@ -57,6 +58,29 @@ const DonorDashboard = () => {
         postedAt: 'Just now'
       }));
       setMyPosts(mapped);
+
+      // Fetch receiver name for claimed posts
+      const claimed = mapped.filter(p => p.status === 'claimed');
+      if (claimed.length > 0) {
+        const results = await Promise.allSettled(
+          claimed.map(async (p) => {
+            const resp = await fetch('/claimedname', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ food_id: parseInt(p.id, 10) })
+            });
+            const info = await resp.json().catch(() => null);
+            return { id: p.id, info };
+          })
+        );
+        const map = {};
+        results.forEach(r => {
+          if (r.status === 'fulfilled' && r.value) {
+            map[r.value.id] = r.value.info;
+          }
+        });
+        setClaimedInfoByFoodId(map);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -87,7 +111,7 @@ const DonorDashboard = () => {
           quantity: newPost.quantity,
           image_url: newPost.imageUrl || '',
           pickup_location: newPost.pickupLocation || '',
-          // Send human-readable hours string or null for no expiry
+          
           expiry_time: expiryLabel
         })
       });
@@ -162,6 +186,13 @@ const DonorDashboard = () => {
       default:
         return <Clock className="h-4 w-4" />;
     }
+  };
+
+  const formatExpiryLabel = (value) => {
+    const text = String(value || "");
+    const num = parseInt(text.replace(/\D/g, ""), 10);
+    if (!Number.isFinite(num)) return text || "N/A";
+    return `${num} ${num === 1 ? "hour" : "hours"}`;
   };
 
   if (!user) {
@@ -260,8 +291,22 @@ const DonorDashboard = () => {
                     
                     <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                       <Clock className="h-4 w-4" />
-                      <span>Expires in {post.expiryHours}h</span>
+                      <span>Expires in {formatExpiryLabel(post.expiryHours)}</span>
                     </div>
+
+                    {post.status === 'claimed' && (
+                      <div className="text-sm bg-secondary/20 border border-secondary/40 rounded-md p-3 space-y-1">
+                        <div className="font-medium text-foreground">Claimed by</div>
+                        <div className="text-muted-foreground">
+                          {(() => {
+                            const info = claimedInfoByFoodId[post.id];
+                            if (!info) return 'Fetching receiver name...';
+                            const name = info?.receiver_name || 'Unknown';
+                            return name;
+                          })()}
+                        </div>
+                      </div>
+                    )}
                     
                     <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                       <MapPin className="h-4 w-4" />

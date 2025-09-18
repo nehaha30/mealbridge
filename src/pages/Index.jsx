@@ -49,9 +49,15 @@ const Index = () => {
               </Link>
               <Link 
                 to="/login"
-                className="border border-input hover:bg-accent hover:text-accent-foreground text-lg px-8 py-6 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="border-2 border-primary text-primary hover:bg-primary/10 text-lg px-8 py-6 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 shadow-sm"
               >
                 Login
+              </Link>
+              <Link 
+                to="/about"
+                className="bg-secondary text-secondary-foreground hover:bg-secondary/90 text-lg px-8 py-6 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                Learn More
               </Link>
             </div>
           </div>

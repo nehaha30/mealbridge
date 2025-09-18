@@ -27,12 +27,37 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      "/pickups": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+        secure: false,
+      },
       "/fetchpost": {
         target: "http://localhost:3000",
         changeOrigin: true,
         secure: false,
       },
       "/deletepost": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/claim": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/available": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/pickupslist": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/claimedname": {
         target: "http://localhost:3000",
         changeOrigin: true,
         secure: false,

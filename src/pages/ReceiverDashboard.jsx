@@ -1,12 +1,11 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Clock, MapPin, X, AlertCircle, User } from "lucide-react";
+import { Clock, MapPin, X } from "lucide-react";
 import Navbar from "@/components/Navbar";
 
 
 const ReceiverDashboard = () => {
   const [user, setUser] = useState(null);
-  const [availableFood, setAvailableFood] = useState([]);
   const [myRequests, setMyRequests] = useState([]);
 
   useEffect(() => {
@@ -15,44 +14,35 @@ const ReceiverDashboard = () => {
       setUser(JSON.parse(userData));
     }
     
-    loadAvailableFood();
     loadMyRequests();
-
-    // Listen for cancel events
-    const handlePickupCancelled = (event) => {
-      loadAvailableFood();
-      loadMyRequests();
-    };
-
-    window.addEventListener('pickupCancelled', handlePickupCancelled);
-    
-    return () => {
-      window.removeEventListener('pickupCancelled', handlePickupCancelled);
-    };
   }, []);
 
-  const loadAvailableFood = () => {
-    const allPosts = JSON.parse(localStorage.getItem('foodPosts') || '[]');
-    const available = allPosts.filter((post) => post.status === "available");
-    setAvailableFood(available);
-  };
-
-  const loadMyRequests = () => {
+  const loadMyRequests = async () => {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    if (!userData.email) return;
+    const receiverId = userData.id || userData.userId || userData.ID || userData.user_id;
+    if (!receiverId) return;
 
-    const allRequests = JSON.parse(localStorage.getItem('pickupRequests') || '[]');
-    const userRequests = allRequests.filter((request) => 
-      request.requestedBy === userData.email
-    );
-    setMyRequests(userRequests);
-  };
-
-  const getExpiryStatus = (hours) => {
-    const hoursNum = parseInt(hours);
-    if (hoursNum <= 2) return { color: "text-destructive", label: "Urgent", icon: AlertCircle };
-    if (hoursNum <= 4) return { color: "text-orange-600", label: "Soon", icon: Clock };
-    return { color: "text-primary", label: "Fresh", icon: Clock };
+    try {
+      const res = await fetch('/pickupslist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiver_id: Number(receiverId) })
+      });
+      const data = await res.json().catch(() => ([]));
+      const mapped = (Array.isArray(data) ? data : []).map(item => ({
+        id: (item.pickup_id || Date.now()).toString(),
+        pickupId: item.pickup_id,
+        foodId: item.food_id,
+        foodTitle: item.food_name,
+        donorName: `Donor #${item.donor_id}`,
+        pickupLocation: item.pickup_location,
+        requestStatus: (item.status || 'Requested').toLowerCase(),
+        requestedAt: 'Recently'
+      }));
+      setMyRequests(mapped);
+    } catch (_) {
+      // minimal handling per request
+    }
   };
 
   const getStatusColor = (status) => {
@@ -68,50 +58,38 @@ const ReceiverDashboard = () => {
     }
   };
 
-  const handleConfirmPickup = (postId) => {
-    if (!user?.email) return;
-    
-    const post = availableFood.find(p => p.id === postId);
-    if (!post) return;
+  const handleCancelRequest = async (requestId) => {
+    // Find the request to recover food_id and pickupId
+    const request = myRequests.find(r => r.id === requestId);
 
-    // Create pickup request
-    const pickupRequest = {
-      id: Date.now().toString(),
-      foodTitle: post.foodName,
-      donorName: post.donorName,
-      pickupLocation: post.pickupLocation,
-      requestStatus: "requested",
-      requestedBy: user.email,
-      requestedAt: "Just now"
-    };
-    
-    // Get existing requests and add new one
-    const existingRequests = JSON.parse(localStorage.getItem('pickupRequests') || '[]');
-    localStorage.setItem('pickupRequests', JSON.stringify([pickupRequest, ...existingRequests]));
-    
-    // Update post status
-    const allPosts = JSON.parse(localStorage.getItem('foodPosts') || '[]');
-    const updatedPosts = allPosts.map((p) => 
-      p.id === postId ? { ...p, status: "claimed" } : p
-    );
-    localStorage.setItem('foodPosts', JSON.stringify(updatedPosts));
-    
-    // Reload data
-    loadAvailableFood();
+    // Call backend to delete pickup if we have pickupId
+    if (request?.pickupId) {
+      try {
+        await fetch('/pickups', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pickup_id: Number(request.pickupId) })
+        });
+      } catch (e) {
+        // ignore network error; still proceed to update local view
+      }
+    }
+
+    // Call backend to set post as available if we have a foodId
+    if (request?.foodId) {
+      try {
+        await fetch('/available', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ food_id: Number(request.foodId) })
+        });
+      } catch (e) {
+        // ignore network error; still proceed to update local view
+      }
+    }
+
+    // Refresh list from DB
     loadMyRequests();
-  };
-
-  const handleCancelRequest = (requestId) => {
-    // Remove the request from localStorage
-    const updatedRequests = myRequests.filter(request => request.id !== requestId);
-    localStorage.setItem('pickupRequests', JSON.stringify(updatedRequests));
-    setMyRequests(updatedRequests);
-    
-    // Find the corresponding food post and make it available again
-    window.dispatchEvent(new CustomEvent('pickupCancelled', { detail: { requestId } }));
-    
-    // Reload available food
-    loadAvailableFood();
   };
 
   if (!user) {
@@ -147,84 +125,7 @@ const ReceiverDashboard = () => {
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-8">
-          {/* Available Food Section */}
-          <div className="space-y-6">
-            <div>
-              <h1 className="text-3xl font-bold text-primary">
-                Available Food
-              </h1>
-              <p className="text-muted-foreground mt-2">Browse and request food donations from local donors</p>
-            </div>
-
-            {availableFood.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-6xl mb-4">🍽️</div>
-                <h3 className="text-xl font-semibold text-foreground mb-2">No food available right now</h3>
-                <p className="text-muted-foreground">Check back later for new donations!</p>
-              </div>
-            ) : (
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {availableFood.map((post) => {
-                  const expiryStatus = getExpiryStatus(post.expiryHours);
-                  const ExpiryIcon = expiryStatus.icon;
-                  
-                  return (
-                    <div key={post.id} className="border border-border shadow-card hover:shadow-lg transition-all duration-300 transform hover:scale-105 bg-card rounded-lg p-4">
-                      <div className="pb-4">
-                        <div className="w-full h-48 bg-muted rounded-lg mb-4 flex items-center justify-center">
-                          <img 
-                            src={post.imageUrl} 
-                            alt={post.foodName}
-                            className="w-full h-full object-cover rounded-lg"
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                              e.target.nextElementSibling?.classList.remove('hidden');
-                            }}
-                          />
-                          <div className="hidden text-muted-foreground">
-                            <span className="text-4xl">🍽️</span>
-                          </div>
-                        </div>
-                        <h3 className="text-xl font-semibold text-foreground">{post.foodName}</h3>
-                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                          <User className="h-4 w-4" />
-                          <span>{post.donorName}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-4">
-                        <p className="text-sm text-foreground">{post.description}</p>
-                        
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <ExpiryIcon className={`h-4 w-4 ${expiryStatus.color}`} />
-                            <span className={`text-sm font-medium ${expiryStatus.color}`}>
-                              {post.expiryHours}h - {expiryStatus.label}
-                            </span>
-                          </div>
-                          <span className="text-sm font-semibold text-foreground bg-muted px-2 py-1 rounded-full">
-                            {post.quantity}
-                          </span>
-                        </div>
-                        
-                        <div className="flex items-start space-x-2">
-                          <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                          <span className="text-sm text-muted-foreground">{post.pickupLocation}</span>
-                        </div>
-                        
-                        <button 
-                          className="w-full bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                          onClick={() => handleConfirmPickup(post.id)}
-                        >
-                          Request Pickup
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          {/* Available Food section removed (Self Pickup covers it) */}
 
           {/* My Pickup Requests Section */}
           <div className="space-y-6">

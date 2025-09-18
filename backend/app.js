@@ -71,10 +71,43 @@ app.post("/foodposts", (req, res) => {
 
 // Get Available Food Posts
 app.get("/foodposts", (req, res) => {
-  const sql = "SELECT * FROM foodposts WHERE status = 'Available'";
+  // Normalize status to be case-insensitive for 'available'
+  const sql = "SELECT * FROM foodposts WHERE LOWER(status) = 'available'";
   db.query(sql, (err, result) => {
     if (err) return res.status(500).json({ error: err.sqlMessage });
     res.json(result);
+  });
+});
+
+// Mark a food post as claimed (expects { food_id } in body)
+app.post("/claim", (req, res) => {
+  const { food_id } = req.body || {};
+  if (!food_id) {
+    return res.status(400).json({ error: "food_id is required" });
+  }
+  const sql = "UPDATE foodposts SET status = 'claimed' WHERE food_id = ?";
+  db.query(sql, [food_id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.sqlMessage });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Post not found" });
+    }
+    res.json({ message: "Food post claimed", food_id });
+  });
+});
+
+// Mark a food post back to available (expects { food_id } in body)
+app.post("/available", (req, res) => {
+  const { food_id } = req.body || {};
+  if (!food_id) {
+    return res.status(400).json({ error: "food_id is required" });
+  }
+  const sql = "UPDATE foodposts SET status = 'available' WHERE food_id = ?";
+  db.query(sql, [food_id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.sqlMessage });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Post not found" });
+    }
+    res.json({ message: "Food post set to available", food_id });
   });
 });
 
@@ -88,10 +121,42 @@ app.post("/pickups", (req, res) => {
   });
 });
 
+// Delete a pickup by pickup_id
+app.delete("/pickups", (req, res) => {
+  const { pickup_id } = req.body || {};
+  if (!pickup_id) {
+    return res.status(400).json({ error: "pickup_id is required" });
+  }
+  const sql = "DELETE FROM pickups WHERE pickup_id = ?";
+  db.query(sql, [pickup_id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.sqlMessage });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Pickup not found" });
+    }
+    res.json({ message: "Pickup deleted", pickup_id });
+  });
+});
+
 // Get Pickups (by receiver_id from body)
-app.post("/pickups/list", (req, res) => {
+app.post("/pickupslist", (req, res) => {
   const { receiver_id } = req.body;
-  const sql = "SELECT * FROM pickups WHERE receiver_id = ?";
+  const sql = `
+    SELECT 
+      p.pickup_id,
+      p.food_id,
+      p.receiver_id,
+      p.status,
+      f.food_name,
+      f.description,
+      f.quantity,
+      f.expiry_time,
+      f.pickup_location,
+      f.image_url,
+      f.donor_id
+    FROM pickups p
+    JOIN foodposts f ON f.food_id = p.food_id
+    WHERE p.receiver_id = ?
+    ORDER BY p.pickup_id DESC`;
   db.query(sql, [receiver_id], (err, result) => {
     if (err) return res.status(500).json({ error: err.sqlMessage });
     res.json(result);
@@ -104,10 +169,61 @@ app.post("/fetchpost", (req, res) => {
   if (!donor_id) {
     return res.status(400).json({ error: "donor_id is required" });
   }
-  const sql = "SELECT * FROM foodposts WHERE donor_id = ? ORDER BY id DESC";
+  const sql = "SELECT * FROM foodposts WHERE donor_id = ? ORDER BY food_id DESC";
   db.query(sql, [donor_id], (err, result) => {
     if (err) return res.status(500).json({ error: err.sqlMessage });
     res.json(result);
+  });
+});
+
+// Get receiver info for a claimed food post (expects { food_id })
+app.post("/claimedinfo", (req, res) => {
+  const { food_id } = req.body || {};
+  if (!food_id) {
+    return res.status(400).json({ error: "food_id is required" });
+  }
+  const sql = `
+    SELECT 
+      u.user_id as receiver_id,
+      u.name as receiver_name,
+      u.email as receiver_email
+    FROM pickups p
+    JOIN users u ON u.user_id = p.receiver_id
+    WHERE p.food_id = ?
+    ORDER BY p.pickup_id DESC
+    LIMIT 1`;
+  db.query(sql, [food_id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.sqlMessage });
+    if (!Array.isArray(result) || result.length === 0) {
+      return res.json(null);
+    }
+    res.json(result[0]);
+  });
+});
+
+// Get only the receiver name for a claimed food post (expects { food_id })
+app.post("/claimedname", (req, res) => {
+  const { food_id } = req.body || {};
+  if (!food_id) {
+    return res.status(400).json({ error: "food_id is required" });
+  }
+  console.log("[claimedname] Incoming food_id:", food_id);
+  const sql = `
+    SELECT 
+      u.name AS receiver_name
+    FROM pickups p
+    JOIN users u ON u.user_id = p.receiver_id
+    WHERE p.food_id = ?
+    ORDER BY p.pickup_id DESC
+    LIMIT 1`;
+  db.query(sql, [food_id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.sqlMessage });
+    if (!Array.isArray(result) || result.length === 0) {
+      return res.json(null);
+    }
+    const name = result[0].receiver_name;
+    console.log("[claimedname] Resolved receiver_name:", name);
+    res.json({ receiver_name: name });
   });
 });
 

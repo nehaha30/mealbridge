@@ -5,85 +5,46 @@ import Navbar from "@/components/Navbar";
 
 const SelfPickup = () => {
   const [foodPosts, setFoodPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    // Initialize food posts in localStorage if not exists
-    const savedPosts = localStorage.getItem('foodPosts');
-    if (savedPosts) {
-      setFoodPosts(JSON.parse(savedPosts));
-    } else {
-      // Mock food posts for pickup
-      const initialPosts = [
-        {
-          id: "1",
-          foodName: "Fresh Pasta & Sauce",
-          quantity: "5 portions",
-          expiryHours: "4",
-          pickupLocation: "123 Main St, Downtown",
-          description: "Delicious homemade pasta with marinara sauce",
-          imageUrl: "/placeholder.svg",
-          donorName: "Mario's Italian Restaurant",
-          status: "available",
-          postedAt: "2 hours ago"
-        },
-        {
-          id: "2",
-          foodName: "Mixed Vegetables",
-          quantity: "10 portions",
-          expiryHours: "6",
-          pickupLocation: "456 Oak Ave, Midtown",
-          description: "Fresh mixed vegetables perfect for cooking",
-          imageUrl: "/placeholder.svg",
-          donorName: "Green Garden Cafe",
-          status: "available",
-          postedAt: "1 hour ago"
-        },
-        {
-          id: "3",
-          foodName: "Bread & Pastries",
-          quantity: "8 items",
-          expiryHours: "2",
-          pickupLocation: "789 Elm St, Uptown",
-          description: "Fresh baked bread and assorted pastries",
-          imageUrl: "/placeholder.svg",
-          donorName: "Sunrise Bakery",
-          status: "available",
-          postedAt: "30 minutes ago"
-        },
-        {
-          id: "4",
-          foodName: "Indian Curry Set",
-          quantity: "12 portions",
-          expiryHours: "8",
-          pickupLocation: "321 Pine Rd, Eastside",
-          description: "Authentic Indian curry with rice and naan",
-          imageUrl: "/placeholder.svg",
-          donorName: "Spice Palace",
-          status: "available",
-          postedAt: "45 minutes ago"
+    // Fetch available posts from backend
+    const fetchAvailable = async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const res = await fetch('/foodposts');
+        const data = await res.json().catch(() => ([]));
+        if (!res.ok) {
+          throw new Error(data.error || data.message || 'Failed to load available posts');
         }
-      ];
-      setFoodPosts(initialPosts);
-      localStorage.setItem('foodPosts', JSON.stringify(initialPosts));
-    }
+        const mapped = (Array.isArray(data) ? data : []).map(item => ({
+          id: (item.food_id || item.id || item.foodId || Date.now()).toString(),
+          foodName: item.food_name || item.foodName || '',
+          quantity: item.quantity || '',
+          expiryHours: (item.expiry_time || '').toString().replace(/\D/g, '') || '',
+          pickupLocation: item.pickup_location || '',
+          description: item.description || '',
+          imageUrl: item.image_url || '',
+          donorName: item.donor_name || `Donor #${item.donor_id}`,
+          status: (item.status || 'available').toLowerCase(),
+          postedAt: 'Just now'
+        }));
+        setFoodPosts(mapped);
+      } catch (e) {
+        setError(e.message || 'Something went wrong');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAvailable();
 
     // Listen for cancel events from dashboard
     const handlePickupCancelled = (event) => {
-      const pickupRequests = JSON.parse(localStorage.getItem('pickupRequests') || '[]');
-      const cancelledRequest = pickupRequests.find((req) => req.id === event.detail.requestId);
-      
-      if (cancelledRequest) {
-        // Find the food post that matches this request and make it available again
-        const savedPosts = JSON.parse(localStorage.getItem('foodPosts') || '[]');
-        const updatedPosts = savedPosts.map((post) => 
-          post.foodName === cancelledRequest.foodTitle && 
-          post.donorName === cancelledRequest.donorName
-            ? { ...post, status: "available" }
-            : post
-        );
-        localStorage.setItem('foodPosts', JSON.stringify(updatedPosts));
-        setFoodPosts(updatedPosts);
-      }
+      // On cancel, simply refresh available posts from backend
+      fetchAvailable();
     };
 
     window.addEventListener('pickupCancelled', handlePickupCancelled);
@@ -100,14 +61,41 @@ const SelfPickup = () => {
     return { color: "text-green-600", label: "Fresh", icon: Clock };
   };
 
-  const handleConfirmPickup = (postId) => {
+  const handleConfirmPickup = async (postId) => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const post = foodPosts.find(p => p.id === postId);
     
     if (post && user.email) {
-      // Create pickup request
+      // Update backend status to claimed, then create pickup and persist with pickupId
+      let pickupIdFromServer = null;
+      try {
+        await fetch('/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ food_id: Number(postId) })
+        });
+        // Also create a pickup record in backend
+        const receiverId = user.id || user.userId || user.ID || user.user_id || null;
+        if (receiverId) {
+          const res = await fetch('/pickups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ food_id: Number(postId), receiver_id: Number(receiverId) })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && (data.pickupId || data.id)) {
+            pickupIdFromServer = (data.pickupId || data.id).toString();
+          }
+        }
+      } catch (e) {
+        // ignore and rely on optimistic update
+      }
+
+      // Create pickup request locally (store backend pickupId if available)
       const pickupRequest = {
         id: Date.now().toString(),
+        pickupId: pickupIdFromServer || undefined,
+        foodId: postId,
         foodTitle: post.foodName,
         donorName: post.donorName,
         pickupLocation: post.pickupLocation,
@@ -115,17 +103,11 @@ const SelfPickup = () => {
         requestedBy: user.email,
         requestedAt: "Just now"
       };
-      
-      // Get existing requests and add new one
       const existingRequests = JSON.parse(localStorage.getItem('pickupRequests') || '[]');
       localStorage.setItem('pickupRequests', JSON.stringify([pickupRequest, ...existingRequests]));
-      
-      // Update post status
-      const updatedPosts = foodPosts.map(p => 
-        p.id === postId ? { ...p, status: "claimed" } : p
-      );
-      setFoodPosts(updatedPosts);
-      localStorage.setItem('foodPosts', JSON.stringify(updatedPosts));
+
+      // Optimistic update
+      setFoodPosts(prev => prev.map(p => p.id === postId ? { ...p, status: 'claimed' } : p));
     }
   };
 
@@ -144,8 +126,15 @@ const SelfPickup = () => {
             </p>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {foodPosts
+          {error && (
+            <div className="text-center text-destructive">{error}</div>
+          )}
+
+          {loading ? (
+            <div className="text-center py-12 text-muted-foreground">Loading available posts...</div>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {foodPosts
               .filter(post => post.status === "available")
               .map((post) => {
                 const expiryStatus = getExpiryStatus(post.expiryHours);
@@ -205,9 +194,10 @@ const SelfPickup = () => {
                   </div>
                 );
               })}
-          </div>
+            </div>
+          )}
           
-          {foodPosts.filter(post => post.status === "available").length === 0 && (
+          {!loading && foodPosts.filter(post => post.status === "available").length === 0 && (
             <div className="text-center py-12">
               <div className="text-6xl mb-4">🍽️</div>
               <h3 className="text-xl font-semibold text-foreground mb-2">No food available right now</h3>
